@@ -15,7 +15,7 @@ import {
   Divider,
 } from '@douyinfe/semi-ui';
 import {
-  IconEye,
+  IconEyeOpened,
   IconClose,
   IconCopy,
   IconPulse,
@@ -126,7 +126,7 @@ const KeyViewModal = ({ visible, onClose, channelId, channelName }) => {
     <Modal
       title={
         <div style={{ display: 'flex', alignItems: 'center' }}>
-          <IconEye style={{ marginRight: 8 }} />
+          <IconEyeOpened style={{ marginRight: 8 }} />
           {t('查看渠道密钥')}
         </div>
       }

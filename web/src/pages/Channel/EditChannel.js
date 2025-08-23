@@ -39,7 +39,7 @@ import {
   IconCode,
   IconGlobe,
   IconBolt,
-  IconEye,
+  IconEyeOpened,
 } from '@douyinfe/semi-icons';
 
 const { Text, Title } = Typography;
@@ -970,7 +970,7 @@ const EditChannel = (props) => {
                                     <Button
                                       size="small"
                                       type="tertiary"
-                                      icon={<IconEye />}
+                                      icon={<IconEyeOpened />}
                                       onClick={() => setKeyViewModalVisible(true)}
                                     >
                                       {t('查看')}
@@ -1019,7 +1019,7 @@ const EditChannel = (props) => {
                                   <Button
                                     size="small"
                                     type="tertiary"
-                                    icon={<IconEye />}
+                                    icon={<IconEyeOpened />}
                                     onClick={() => setKeyViewModalVisible(true)}
                                   >
                                     {t('查看')}
