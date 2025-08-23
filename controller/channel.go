@@ -7,6 +7,7 @@ import (
 	"one-api/common"
 	"one-api/constant"
 	"one-api/model"
+	"one-api/service"
 	"strconv"
 	"strings"
 
@@ -719,6 +720,241 @@ func UpdateChannel(c *gin.Context) {
 	return
 }
 
+// ToggleChannelKeyMode 切换渠道Key模式
+func ToggleChannelKeyMode(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "参数错误",
+		})
+		return
+	}
+
+	// 获取现有渠道信息
+	originChannel, err := model.GetChannelById(id, false)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 检查是否为多Key模式
+	if !originChannel.ChannelInfo.IsMultiKey {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "该渠道不是多Key模式，无法切换Key模式",
+		})
+		return
+	}
+
+	// 设置Key模式
+	newMode := constant.MultiKeyModeRandom
+	if req.Enabled {
+		newMode = constant.MultiKeyModePolling
+	}
+
+	// 更新渠道信息
+	originChannel.ChannelInfo.MultiKeyMode = newMode
+	err = originChannel.SaveChannelInfo()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	// 更新缓存
+	model.InitChannelCache()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Key模式切换成功",
+		"data": gin.H{
+			"channel_id": id,
+			"key_mode":   string(newMode),
+			"enabled":    req.Enabled,
+		},
+	})
+}
+
+// UpdateChannelKeyStrategy 更新渠道Key策略配置
+func UpdateChannelKeyStrategy(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	var req struct {
+		PollingEnabled  bool   `json:"polling_enabled"`
+		PollingStrategy string `json:"polling_strategy"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "参数错误",
+		})
+		return
+	}
+
+	// 获取现有渠道信息
+	originChannel, err := model.GetChannelById(id, false)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 检查是否为多Key模式
+	if !originChannel.ChannelInfo.IsMultiKey {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "该渠道不是多Key模式，无法配置轮询策略",
+		})
+		return
+	}
+
+	// 验证轮询策略
+	if req.PollingEnabled && req.PollingStrategy != "" {
+		if req.PollingStrategy != string(constant.KeyStrategyRandom) && 
+		   req.PollingStrategy != string(constant.KeyStrategySequential) {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "不支持的轮询策略",
+			})
+			return
+		}
+	}
+
+	// 更新渠道策略配置
+	originChannel.ChannelInfo.PollingEnabled = req.PollingEnabled
+	if req.PollingStrategy != "" {
+		originChannel.ChannelInfo.PollingStrategy = constant.KeyStrategy(req.PollingStrategy)
+	} else {
+		// 默认使用随机策略
+		originChannel.ChannelInfo.PollingStrategy = constant.KeyStrategyRandom
+	}
+
+	// 重置顺序循环索引
+	if originChannel.ChannelInfo.PollingStrategy == constant.KeyStrategySequential {
+		originChannel.ChannelInfo.SequentialIndex = 0
+	}
+
+	err = originChannel.SaveChannelInfo()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	// 更新缓存
+	model.InitChannelCache()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Key策略配置成功",
+		"data": gin.H{
+			"channel_id":       id,
+			"polling_enabled":  req.PollingEnabled,
+			"polling_strategy": req.PollingStrategy,
+			"updated_time":     common.GetTimestamp(),
+		},
+	})
+}
+
+// BatchUpdateChannelKeyStrategy 批量更新渠道Key策略配置
+func BatchUpdateChannelKeyStrategy(c *gin.Context) {
+	var req struct {
+		ChannelIds      []int  `json:"channel_ids"`
+		PollingEnabled  bool   `json:"polling_enabled"`
+		PollingStrategy string `json:"polling_strategy"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "参数错误",
+		})
+		return
+	}
+
+	if len(req.ChannelIds) == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "渠道ID列表不能为空",
+		})
+		return
+	}
+
+	// 验证轮询策略
+	if req.PollingEnabled && req.PollingStrategy != "" {
+		if req.PollingStrategy != string(constant.KeyStrategyRandom) && 
+		   req.PollingStrategy != string(constant.KeyStrategySequential) {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "不支持的轮询策略",
+			})
+			return
+		}
+	}
+
+	updatedCount := 0
+	for _, channelId := range req.ChannelIds {
+		channel, err := model.GetChannelById(channelId, false)
+		if err != nil {
+			continue
+		}
+
+		// 只更新多Key模式的渠道
+		if !channel.ChannelInfo.IsMultiKey {
+			continue
+		}
+
+		// 更新策略配置
+		channel.ChannelInfo.PollingEnabled = req.PollingEnabled
+		if req.PollingStrategy != "" {
+			channel.ChannelInfo.PollingStrategy = constant.KeyStrategy(req.PollingStrategy)
+		} else {
+			channel.ChannelInfo.PollingStrategy = constant.KeyStrategyRandom
+		}
+
+		// 重置顺序循环索引
+		if channel.ChannelInfo.PollingStrategy == constant.KeyStrategySequential {
+			channel.ChannelInfo.SequentialIndex = 0
+		}
+
+		if err := channel.SaveChannelInfo(); err == nil {
+			updatedCount++
+		}
+	}
+
+	// 更新缓存
+	model.InitChannelCache()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": fmt.Sprintf("成功更新 %d 个渠道的Key策略配置", updatedCount),
+		"data": gin.H{
+			"updated_count":    updatedCount,
+			"polling_enabled":  req.PollingEnabled,
+			"polling_strategy": req.PollingStrategy,
+			"updated_time":     common.GetTimestamp(),
+		},
+	})
+}
+
 func FetchModels(c *gin.Context) {
 	var req struct {
 		BaseURL string `json:"base_url"`
@@ -913,4 +1149,49 @@ func CopyChannel(c *gin.Context) {
 	model.InitChannelCache()
 	// success
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": gin.H{"id": clone.Id}})
+}
+
+// GetChannelKey 获取渠道密钥信息（脱敏显示）
+// GET /api/channel/:id/key
+func GetChannelKey(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "无效的渠道ID",
+		})
+		return
+	}
+
+	// 获取查看模式参数
+	viewMode := c.DefaultQuery("view_mode", "masked")
+	if viewMode != "masked" && viewMode != "count" {
+		viewMode = "masked"
+	}
+
+	// 获取渠道信息（包含密钥）
+	channel, err := model.GetChannelById(id, true)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "渠道不存在",
+		})
+		return
+	}
+
+	// 获取密钥查看信息
+	keyViewData, err := service.GetChannelKeyView(channel, viewMode)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    keyViewData,
+	})
 }

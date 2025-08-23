@@ -29,6 +29,8 @@ import {
   Highlight,
 } from '@douyinfe/semi-ui';
 import { getChannelModels, copy, getChannelIcon, getModelCategories } from '../../helpers';
+import KeyViewModal from '../../components/common/KeyViewModal';
+import KeyStatusIndicator from '../../components/common/KeyStatusIndicator';
 import {
   IconSave,
   IconClose,
@@ -37,6 +39,7 @@ import {
   IconCode,
   IconGlobe,
   IconBolt,
+  IconEye,
 } from '@douyinfe/semi-icons';
 
 const { Text, Title } = Typography;
@@ -125,6 +128,8 @@ const EditChannel = (props) => {
   const [isMultiKeyChannel, setIsMultiKeyChannel] = useState(false);
   const [channelSearchValue, setChannelSearchValue] = useState('');
   const [useManualInput, setUseManualInput] = useState(false); // 是否使用手动输入模式
+  const [keyViewModalVisible, setKeyViewModalVisible] = useState(false);
+  const [refreshKeyStatus, setRefreshKeyStatus] = useState(0);
   const getInitValues = () => ({ ...originInputs });
   const handleInputChange = (name, value) => {
     if (formApiRef.current) {
@@ -936,24 +941,44 @@ const EditChannel = (props) => {
                           )}
                           
                           {useManualInput && !batch ? (
-                            <Form.TextArea
-                              field='key'
-                              label={isEdit ? t('密钥（编辑模式下，保存的密钥不会显示）') : t('密钥')}
-                              placeholder={t('请输入 JSON 格式的密钥内容，例如：\n{\n  "type": "service_account",\n  "project_id": "your-project-id",\n  "private_key_id": "...",\n  "private_key": "...",\n  "client_email": "...",\n  "client_id": "...",\n  "auth_uri": "...",\n  "token_uri": "...",\n  "auth_provider_x509_cert_url": "...",\n  "client_x509_cert_url": "..."\n}')}
-                              rules={isEdit ? [] : [{ required: true, message: t('请输入密钥') }]}
-                              autoComplete='new-password'
-                              onChange={(value) => handleInputChange('key', value)}
-                              extraText={
-                                <div className="flex items-center gap-2">
-                                  <Text type="tertiary" size="small">
-                                    {t('请输入完整的 JSON 格式密钥内容')}
-                                  </Text>
-                                  {batchExtra}
+                            <div>
+                              <Form.TextArea
+                                field='key'
+                                label={isEdit ? t('密钥（编辑模式下，保存的密钥不会显示）') : t('密钥')}
+                                placeholder={t('请输入 JSON 格式的密钥内容，例如：\n{\n  "type": "service_account",\n  "project_id": "your-project-id",\n  "private_key_id": "...",\n  "private_key": "...",\n  "client_email": "...",\n  "client_id": "...",\n  "auth_uri": "...",\n  "token_uri": "...",\n  "auth_provider_x509_cert_url": "...",\n  "client_x509_cert_url": "..."\n}')}
+                                rules={isEdit ? [] : [{ required: true, message: t('请输入密钥') }]}
+                                autoComplete='new-password'
+                                onChange={(value) => handleInputChange('key', value)}
+                                extraText={
+                                  <div className="flex items-center gap-2">
+                                    <Text type="tertiary" size="small">
+                                      {t('请输入完整的 JSON 格式密钥内容')}
+                                    </Text>
+                                    {batchExtra}
+                                  </div>
+                                }
+                                autosize
+                                showClear
+                              />
+                              {isEdit && channelId && (
+                                <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
+                                  <Space>
+                                    <KeyStatusIndicator 
+                                      channelId={channelId} 
+                                      refreshTrigger={refreshKeyStatus} 
+                                    />
+                                    <Button
+                                      size="small"
+                                      type="tertiary"
+                                      icon={<IconEye />}
+                                      onClick={() => setKeyViewModalVisible(true)}
+                                    >
+                                      {t('查看')}
+                                    </Button>
+                                  </Space>
                                 </div>
-                              }
-                              autosize
-                              showClear
-                            />
+                              )}
+                            </div>
                           ) : (
                             <Form.Upload
                               field='vertex_files'
@@ -974,16 +999,36 @@ const EditChannel = (props) => {
                           )}
                         </>
                       ) : (
-                        <Form.Input
-                          field='key'
-                          label={isEdit ? t('密钥（编辑模式下，保存的密钥不会显示）') : t('密钥')}
-                          placeholder={t(type2secretPrompt(inputs.type))}
-                          rules={isEdit ? [] : [{ required: true, message: t('请输入密钥') }]}
-                          autoComplete='new-password'
-                          onChange={(value) => handleInputChange('key', value)}
-                          extraText={batchExtra}
-                          showClear
-                        />
+                        <div>
+                          <Form.Input
+                            field='key'
+                            label={isEdit ? t('密钥（编辑模式下，保存的密钥不会显示）') : t('密钥')}
+                            placeholder={t(type2secretPrompt(inputs.type))}
+                            rules={isEdit ? [] : [{ required: true, message: t('请输入密钥') }]}
+                            autoComplete='new-password'
+                            onChange={(value) => handleInputChange('key', value)}
+                            extraText={batchExtra}
+                            showClear
+                            suffix={
+                              isEdit && channelId && (
+                                <Space>
+                                  <KeyStatusIndicator 
+                                    channelId={channelId} 
+                                    refreshTrigger={refreshKeyStatus} 
+                                  />
+                                  <Button
+                                    size="small"
+                                    type="tertiary"
+                                    icon={<IconEye />}
+                                    onClick={() => setKeyViewModalVisible(true)}
+                                  >
+                                    {t('查看')}
+                                  </Button>
+                                </Space>
+                              )
+                            }
+                          />
+                        </div>
                       )}
                     </>
                   )}
@@ -1460,6 +1505,12 @@ const EditChannel = (props) => {
           src={modalImageUrl}
           visible={isModalOpenurl}
           onVisibleChange={(visible) => setIsModalOpenurl(visible)}
+        />
+        <KeyViewModal
+          visible={keyViewModalVisible}
+          onClose={() => setKeyViewModalVisible(false)}
+          channelId={channelId}
+          channelName={inputs.name}
         />
       </SideSheet>
     </>

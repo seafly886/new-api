@@ -221,6 +221,7 @@ const ChannelsTable = () => {
     GROUP: 'group',
     TYPE: 'type',
     STATUS: 'status',
+    KEY_MODE: 'key_mode',
     RESPONSE_TIME: 'response_time',
     BALANCE: 'balance',
     PRIORITY: 'priority',
@@ -275,6 +276,7 @@ const ChannelsTable = () => {
       [COLUMN_KEYS.GROUP]: true,
       [COLUMN_KEYS.TYPE]: true,
       [COLUMN_KEYS.STATUS]: true,
+      [COLUMN_KEYS.KEY_MODE]: true,
       [COLUMN_KEYS.RESPONSE_TIME]: true,
       [COLUMN_KEYS.BALANCE]: true,
       [COLUMN_KEYS.PRIORITY]: true,
@@ -379,6 +381,110 @@ const ChannelsTable = () => {
         } else {
           return renderStatus(text, record.channel_info);
         }
+      },
+    },
+    {
+      key: COLUMN_KEYS.KEY_MODE,
+      title: t('Key模式'),
+      dataIndex: 'key_mode',
+      render: (text, record, index) => {
+        if (record.children !== undefined) {
+          // 标签聚合模式下不显示Key模式切换
+          return null;
+        }
+        
+        // 检查是否为多Key模式
+        if (!record.channel_info?.is_multi_key) {
+          return (
+            <Tag color='grey' shape='circle'>
+              {t('单Key')}
+            </Tag>
+          );
+        }
+        
+        const pollingEnabled = record.channel_info?.polling_enabled || false;
+        const pollingStrategy = record.channel_info?.polling_strategy || 'random';
+        
+        const updateKeyStrategy = async (enabled, strategy) => {
+          record.keyStrategyChanging = true;
+          setChannels([...channels]); // 触发重新渲染
+          
+          try {
+            const res = await API.put(`/api/channel/${record.id}/key-strategy`, {
+              polling_enabled: enabled,
+              polling_strategy: strategy
+            });
+            
+            if (res?.data?.success) {
+              // 更新本地状态
+              record.channel_info.polling_enabled = enabled;
+              record.channel_info.polling_strategy = strategy;
+              showSuccess(t('Key策略配置成功'));
+            } else {
+              showError(res?.data?.message || t('操作失败'));
+            }
+          } catch (error) {
+            showError(t('操作失败: ') + (error?.response?.data?.message || error?.message || error));
+          } finally {
+            record.keyStrategyChanging = false;
+            setChannels([...channels]); // 触发重新渲染
+          }
+        };
+        
+        return (
+          <div className="flex flex-col gap-1 min-w-[140px]">
+            {/* 轮询开关 */}
+            <div className="flex items-center gap-2">
+              <Switch
+                size='small'
+                checked={pollingEnabled}
+                loading={record.keyStrategyChanging || false}
+                onChange={async (checked) => {
+                  await updateKeyStrategy(checked, pollingStrategy);
+                }}
+              />
+              <span className="text-xs">
+                {pollingEnabled ? (
+                  <Tag color='green' shape='circle'>
+                    {t('轮询')}
+                  </Tag>
+                ) : (
+                  <Tag color='blue' shape='circle'>
+                    {t('单Key')}
+                  </Tag>
+                )}
+              </span>
+            </div>
+            
+            {/* 策略选择器 - 仅在轮询开启时显示 */}
+            {pollingEnabled && (
+              <div className="flex items-center gap-1">
+                <Select
+                  size='small'
+                  value={pollingStrategy}
+                  disabled={record.keyStrategyChanging || false}
+                  style={{ width: 100 }}
+                  onChange={async (value) => {
+                    await updateKeyStrategy(pollingEnabled, value);
+                  }}
+                >
+                  <Select.Option value="random">
+                    <div className="flex items-center gap-1">
+                      <FaRandom className="text-blue-500" />
+                      <span>{t('随机Key')}</span>
+                    </div>
+                  </Select.Option>
+                  <Select.Option value="sequential">
+                    <div className="flex items-center gap-1">
+                      <IconDescend2 className="text-green-500" />
+                      <span>{t('顺序循环')}</span>
+                    </div>
+                  </Select.Option>
+                </Select>
+              </div>
+            )}
+          </div>
+        );
       },
     },
     {

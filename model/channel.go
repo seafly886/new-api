@@ -54,6 +54,11 @@ type ChannelInfo struct {
 	MultiKeyStatusList   map[int]int           `json:"multi_key_status_list"`   // key状态列表，key index -> status
 	MultiKeyPollingIndex int                   `json:"multi_key_polling_index"` // 多Key模式下轮询的key索引
 	MultiKeyMode         constant.MultiKeyMode `json:"multi_key_mode"`
+	
+	// 轮询模式增强字段
+	PollingEnabled       bool                  `json:"polling_enabled"`         // 是否启用轮询
+	PollingStrategy      constant.KeyStrategy  `json:"polling_strategy"`        // 轮询策略
+	SequentialIndex      int                   `json:"sequential_index"`        // 顺序循环索引
 }
 
 // Value implements driver.Valuer interface
@@ -125,51 +130,59 @@ func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 		return keys[0], 0, nil
 	}
 
-	switch channel.ChannelInfo.MultiKeyMode {
-	case constant.MultiKeyModeRandom:
-		// Randomly pick one enabled key
-		selectedIdx := enabledIdx[rand.Intn(len(enabledIdx))]
-		return keys[selectedIdx], selectedIdx, nil
-	case constant.MultiKeyModePolling:
-		// Use channel-specific lock to ensure thread-safe polling
-		lock := getChannelPollingLock(channel.Id)
-		lock.Lock()
-		defer lock.Unlock()
-
-		channelInfo, err := CacheGetChannelInfo(channel.Id)
-		if err != nil {
-			return "", 0, types.NewError(err, types.ErrorCodeGetChannelFailed)
-		}
-		//println("before polling index:", channel.ChannelInfo.MultiKeyPollingIndex)
-		defer func() {
-			if common.DebugEnabled {
-				println(fmt.Sprintf("channel %d polling index: %d", channel.Id, channel.ChannelInfo.MultiKeyPollingIndex))
-			}
-			if !common.MemoryCacheEnabled {
-				_ = channel.SaveChannelInfo()
-			} else {
-				// CacheUpdateChannel(channel)
-			}
-		}()
-		// Start from the saved polling index and look for the next enabled key
-		start := channelInfo.MultiKeyPollingIndex
-		if start < 0 || start >= len(keys) {
-			start = 0
-		}
-		for i := 0; i < len(keys); i++ {
-			idx := (start + i) % len(keys)
-			if getStatus(idx) == common.ChannelStatusEnabled {
-				// update polling index for next call (point to the next position)
-				channel.ChannelInfo.MultiKeyPollingIndex = (idx + 1) % len(keys)
-				return keys[idx], idx, nil
-			}
-		}
-		// Fallback – should not happen, but return first enabled key
-		return keys[enabledIdx[0]], enabledIdx[0], nil
-	default:
-		// Unknown mode, default to first enabled key (or original key string)
-		return keys[enabledIdx[0]], enabledIdx[0], nil
+	// 新的轮询策略逻辑
+	if !channel.ChannelInfo.PollingEnabled {
+		// 轮询未启用，使用原有逻辑（随机选择）
+		return channel.selectRandomKey(keys, enabledIdx)
 	}
+
+	// 轮询已启用，根据策略选择Key
+	switch channel.ChannelInfo.PollingStrategy {
+	case constant.KeyStrategyRandom:
+		return channel.selectRandomKey(keys, enabledIdx)
+	case constant.KeyStrategySequential:
+		return channel.selectSequentialKey(keys, enabledIdx)
+	default:
+		// 默认使用随机模式
+		return channel.selectRandomKey(keys, enabledIdx)
+	}
+}
+
+// selectRandomKey 随机Key选择算法
+func (channel *Channel) selectRandomKey(keys []string, enabledIdx []int) (string, int, *types.NewAPIError) {
+	selectedIdx := enabledIdx[rand.Intn(len(enabledIdx))]
+	return keys[selectedIdx], selectedIdx, nil
+}
+
+// selectSequentialKey 顺序循环选择算法
+func (channel *Channel) selectSequentialKey(keys []string, enabledIdx []int) (string, int, *types.NewAPIError) {
+	// 使用渠道级别的锁确保线程安全
+	lock := getChannelSequentialLock(channel.Id)
+	lock.Lock()
+	defer lock.Unlock()
+
+	channelInfo, err := CacheGetChannelInfo(channel.Id)
+	if err != nil {
+		return "", 0, types.NewError(err, types.ErrorCodeGetChannelFailed)
+	}
+
+	// 获取当前索引位置
+	currentPos := channelInfo.SequentialIndex % len(enabledIdx)
+	keyIndex := enabledIdx[currentPos]
+
+	// 更新循环索引
+	channel.ChannelInfo.SequentialIndex = (currentPos + 1) % len(enabledIdx)
+
+	defer func() {
+		if common.DebugEnabled {
+			println(fmt.Sprintf("channel %d sequential index: %d", channel.Id, channel.ChannelInfo.SequentialIndex))
+		}
+		if !common.MemoryCacheEnabled {
+			_ = channel.SaveChannelInfo()
+		}
+	}()
+
+	return keys[keyIndex], keyIndex, nil
 }
 
 func (channel *Channel) SaveChannelInfo() error {
@@ -491,6 +504,9 @@ var channelStatusLock sync.Mutex
 // channelPollingLocks stores locks for each channel.id to ensure thread-safe polling
 var channelPollingLocks sync.Map
 
+// channelSequentialLocks stores locks for each channel.id to ensure thread-safe sequential key selection
+var channelSequentialLocks sync.Map
+
 // getChannelPollingLock returns or creates a mutex for the given channel ID
 func getChannelPollingLock(channelId int) *sync.Mutex {
 	if lock, exists := channelPollingLocks.Load(channelId); exists {
@@ -499,6 +515,17 @@ func getChannelPollingLock(channelId int) *sync.Mutex {
 	// Create new lock for this channel
 	newLock := &sync.Mutex{}
 	actual, _ := channelPollingLocks.LoadOrStore(channelId, newLock)
+	return actual.(*sync.Mutex)
+}
+
+// getChannelSequentialLock returns or creates a mutex for the given channel ID for sequential mode
+func getChannelSequentialLock(channelId int) *sync.Mutex {
+	if lock, exists := channelSequentialLocks.Load(channelId); exists {
+		return lock.(*sync.Mutex)
+	}
+	// Create new lock for this channel
+	newLock := &sync.Mutex{}
+	actual, _ := channelSequentialLocks.LoadOrStore(channelId, newLock)
 	return actual.(*sync.Mutex)
 }
 
@@ -517,6 +544,15 @@ func CleanupChannelPollingLocks() {
 		channelId := key.(int)
 		if !activeChannelSet[channelId] {
 			channelPollingLocks.Delete(channelId)
+		}
+		return true
+	})
+	
+	// 清理sequential locks
+	channelSequentialLocks.Range(func(key, value interface{}) bool {
+		channelId := key.(int)
+		if !activeChannelSet[channelId] {
+			channelSequentialLocks.Delete(channelId)
 		}
 		return true
 	})

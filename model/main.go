@@ -302,6 +302,13 @@ func migrateDBFast() error {
 		}
 	}
 	common.SysLog("database migrated")
+	
+	// 进行轮询策略迁移
+	err := migrateChannelPollingStrategy()
+	if err != nil {
+		common.SysError("failed to migrate channel polling strategy: " + err.Error())
+	}
+	
 	return nil
 }
 
@@ -310,6 +317,48 @@ func migrateLOGDB() error {
 	if err = LOG_DB.AutoMigrate(&Log{}); err != nil {
 		return err
 	}
+	return nil
+}
+
+// migrateChannelPollingStrategy 为现有多Key渠道设置默认的轮询策略配置
+func migrateChannelPollingStrategy() error {
+	common.SysLog("migrating channel polling strategy...")
+	
+	// 查找所有多Key模式的渠道
+	var channels []Channel
+	err := DB.Where("JSON_EXTRACT(channel_info, '$.is_multi_key') = ?", "true").Find(&channels).Error
+	if err != nil {
+		return fmt.Errorf("failed to query multi-key channels: %v", err)
+	}
+	
+	updatedCount := 0
+	for _, channel := range channels {
+		// 检查是否已经有轮询策略配置
+		if channel.ChannelInfo.PollingEnabled || channel.ChannelInfo.PollingStrategy != "" {
+			continue // 已经有配置，跳过
+		}
+		
+		// 设置默认策略配置
+		channel.ChannelInfo.PollingEnabled = false // 默认关闭轮询
+		channel.ChannelInfo.PollingStrategy = constant.KeyStrategyRandom // 默认使用随机策略
+		channel.ChannelInfo.SequentialIndex = 0 // 初始化顺序索引
+		
+		// 保存更新
+		err = DB.Model(&channel).Update("channel_info", channel.ChannelInfo).Error
+		if err != nil {
+			common.SysError(fmt.Sprintf("failed to update channel %d polling strategy: %v", channel.Id, err))
+			continue
+		}
+		
+		updatedCount++
+	}
+	
+	if updatedCount > 0 {
+		common.SysLog(fmt.Sprintf("migrated polling strategy for %d channels", updatedCount))
+	} else {
+		common.SysLog("no channels need polling strategy migration")
+	}
+	
 	return nil
 }
 

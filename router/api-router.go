@@ -102,6 +102,7 @@ func SetApiRouter(router *gin.Engine) {
 			channelRoute.GET("/models", controller.ChannelListModels)
 			channelRoute.GET("/models_enabled", controller.EnabledListModels)
 			channelRoute.GET("/:id", controller.GetChannel)
+			channelRoute.GET("/:id/key", controller.GetChannelKey)
 			channelRoute.GET("/test", controller.TestAllChannels)
 			channelRoute.GET("/test/:id", controller.TestChannel)
 			channelRoute.GET("/update_balance", controller.UpdateAllChannelsBalance)
@@ -120,6 +121,9 @@ func SetApiRouter(router *gin.Engine) {
 			channelRoute.POST("/batch/tag", controller.BatchSetChannelTag)
 			channelRoute.GET("/tag/models", controller.GetTagModels)
 			channelRoute.POST("/copy/:id", controller.CopyChannel)
+			channelRoute.PATCH("/:id/key-mode", controller.ToggleChannelKeyMode)
+			channelRoute.PUT("/:id/key-strategy", controller.UpdateChannelKeyStrategy)
+			channelRoute.PATCH("/key-strategy", controller.BatchUpdateChannelKeyStrategy)
 		}
 		tokenRoute := apiRouter.Group("/token")
 		tokenRoute.Use(middleware.UserAuth())
