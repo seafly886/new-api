@@ -8,7 +8,7 @@ import {
   Typography,
 } from '@douyinfe/semi-ui';
 import {
-  IconCheckCircle,
+  IconCheckCircleStroked,
   IconAlertTriangle,
   IconXCircle,
   IconPulse,
@@ -96,14 +96,14 @@ const KeyStatusIndicator = ({ channelId, refreshTrigger }) => {
     // 全部正常
     if (keyStatus.key_count === 1) {
       return {
-        icon: <IconCheckCircle style={{ color: '#52c41a' }} />,
+        icon: <IconCheckCircleStroked style={{ color: '#52c41a' }} />,
         color: 'green',
         text: t('正常'),
         tooltip: t('1个密钥正常'),
       };
     } else {
       return {
-        icon: <IconCheckCircle style={{ color: '#52c41a' }} />,
+        icon: <IconCheckCircleStroked style={{ color: '#52c41a' }} />,
         color: 'green',
         text: t('全部正常'),
         tooltip: t('{{count}}个密钥全部正常', { count: keyStatus.key_count }),
