@@ -21,7 +21,7 @@ import {
   IconPulse,
   IconCheckCircleStroked,
   IconAlertTriangle,
-  IconXCircle,
+  IconStop,
 } from '@douyinfe/semi-icons';
 import { API, showError, showSuccess, copy } from '../../helpers';
 
@@ -65,7 +65,7 @@ const KeyViewModal = ({ visible, onClose, channelId, channelName }) => {
       case 'active':
         return <IconCheckCircleStroked style={{ color: '#52c41a' }} />;
       case 'disabled':
-        return <IconXCircle style={{ color: '#ff4d4f' }} />;
+        return <IconStop style={{ color: '#ff4d4f' }} />;
       default:
         return <IconAlertTriangle style={{ color: '#faad14' }} />;
     }

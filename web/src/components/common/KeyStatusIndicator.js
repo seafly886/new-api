@@ -10,9 +10,8 @@ import {
 import {
   IconCheckCircleStroked,
   IconAlertTriangle,
-  IconXCircle,
-  IconPulse,
   IconStop,
+  IconPulse,
 } from '@douyinfe/semi-icons';
 import { API, showError } from '../../helpers';
 
@@ -74,7 +73,7 @@ const KeyStatusIndicator = ({ channelId, refreshTrigger }) => {
       if (activeKeys.length === 0) {
         // 全部失效
         return {
-          icon: <IconXCircle style={{ color: '#ff4d4f' }} />,
+          icon: <IconStop style={{ color: '#ff4d4f' }} />,
           color: 'red',
           text: t('全部失效'),
           tooltip: t('{{total}}个密钥全部不可用', { total: keyStatus.key_count }),
